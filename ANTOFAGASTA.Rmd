@@ -1,0 +1,575 @@
+---
+title: "NOTEBOOK ANTOFAGASTA"
+output: html_notebook
+editor_options: 
+  markdown: 
+    wrap: 72
+---
+
+## Objetivos:
+
+1.  Realizar ANOVA para evaluar el efecto del CUARTIL DE ISMT sobre el
+    VERDOR DE LOS PARQUES (mean_ndvi)
+2.  Categorizar el VERDOR (Bajo, medio y alto) de los parques para hacer
+    LÍNEAS DE TIEMPO y comparar el cambio de la entropía a lo largo del
+    día
+3.  Realizar un SANKEY para cada hora (AM, Mediodía y PM) 3.1 Calcular
+    valores medios de H para cada rango horario 3.2 Categorizar ENTROPÍA
+
+*Cargamos las librerías*:
+
+```{r}
+library(sf)
+library(dplyr)
+library(ggplot2)
+library(tmap)
+library(tidyverse)
+library(networkD3)
+library(ggpubr)
+#library(tidyclust)
+
+library(ggfortify)
+#library(highcharter)
+
+sf_use_s2(FALSE)
+```
+
+Carga del archivo con los datos
+
+```{r}
+#setwd("./")
+load("workspace_antofa.RData")
+# antofa<-st_read("antofa.shp") # provided in th e.RData file
+antofa<-antofa%>%
+  st_transform(32719) 
+```
+
+## ANOVA NDVI\~ISMT
+
+1.  Cuartilización del entorno socioeconómico
+
+En base al ISMT de cada zona censal donde está el parque
+
+```{r}
+a1<-antofa%>%
+  mutate(Q=cut(ismt, breaks=c(0, 0.166461, 0.527227, 0.630018, 1),
+                      labels=c("Q1","Q2","Q3","Q4"))) |>
+  select(mean_ndvi, ismt, Q) |>
+  distinct()
+
+st_geometry(a1) <- NULL
+```
+
+## 1.1 Histogramas
+
+```{r}
+hist(a1$ismt)
+hist(a1$mean_ndvi)
+
+h_ismt <- ggplot(a1,aes(x = ismt)) +
+  geom_histogram(color="darkblue", fill="lightblue", position="dodge") +
+  geom_density(alpha = .4,fill = "darkblue") +
+  xlab("ISMT") +
+  theme_classic()
+
+h_ndvi <- ggplot(a1,aes(x = mean_ndvi)) +
+  geom_histogram(color="darkred", fill="pink", position="dodge") +
+  geom_density(alpha = .4,fill = "darkred") +
+  xlab("Mean NDVI") +
+  theme_classic()
+
+print(h_ndvi)
+print(h_ismt)
+ggarrange(h_ndvi, h_ismt,labels = c("A", "B"), ncol = 2)
+```
+
+## 2. Modelo estadístico, ANOVA y visualización de los datos
+
+2.1. Modelo estadístico
+
+```{r}
+m1<-lm(mean_ndvi ~ Q, a1)
+```
+
+Evaluamos supuestos
+
+```{r}
+autoplot(m1, smooth.colour = NA) #normalidad Y CONSTANCIA de la varianza, ok
+```
+
+Se cumplen los supuestos para realizar un ANOVA: Normalidad,
+homocedasticidad/constancia de la varianza, ok
+
+## ANOVA
+
+```{r}
+anova(m1)
+```
+
+F-value = varianza (Mean SqQ) / error de la varianza (Mean Sq Residuals)
+F-value = 0.064626 / 0.001933 = 33.433 ¿Qué significa que F-value sea
+33.433? Se tiene que comparar con el 'critical value', que se calcula
+con el comando qf
+
+```{r}
+qf(0.95, 2, 217) # 95% - Df (Q) - Df (Residuals)
+```
+
+```         
+Si F-value > critical value, se puede rechazar la h0; en este caso, se cumple
+        (33.433 >> 3.037472)
+```
+
+Por otro lado, si p-value \< 0.05, también se puede rechazar la h0
+
+Entonces: a. F-value \>\> qf(0.95, 2, 217) --\> se rechaza h0 b. p-value
+\< 0.95 --\> se rechaza h0 c. Al menos uno de las medias es diferente de
+las otras
+
+## 2.3. Summary para evaluar el 'efecto' de cada factor predictor - Q
+
+```{r}
+summary(m1)
+```
+
+Mirando la columna Estimate a. Q2 tiene una media de 0.098187 b. La
+media de Q3 varia muy poco respecto a la de Q2, solo 0.006907 (casi
+nada) c. La media que más difiere es la de Q4, 0.098187 + 0.044810 =
+0.142997
+
+## 2.4 Tukey
+
+```{r}
+m2<-aov(mean_ndvi~Q, a1)
+TukeyHSD(m2)
+
+tk<-TukeyHSD(m2)
+plot(tk, las=2)
+```
+
+Test Tukey nos dice que a. La mayor diferencia es entre Q4 y Q3 (diff =
+0.05171)
+
+## 2.5. Ploteamos
+
+```{r}
+ggplot(a1, aes(x=Q, y=mean_ndvi, colour=Q))+
+ geom_boxplot()+
+  ylab("Mean NDVI")+
+  labs(title = NULL)+
+  xlab("Nivel Sociomaterial Territorial")+
+    labs(color="Nivel Sociomaterial")+
+ggtitle("       'Verdor' de los parques y nivel sociomaterial 
+       de su entorno - ANTOFAGASTA")
+
+## Al final, este no es tan informativo!
+ggplot(a1, aes(x=Q, y=mean_ndvi, colour=Q))+
+ geom_violin()+
+  ylab("Mean NDVI")+
+  labs(title = NULL)+
+  xlab("Nivel Sociomaterial Territorial)")+
+    labs(color="Nivel Sociomaterial")+
+ggtitle("'Verdor' de los parques y nivel sociomaterial 
+       de su entorno - ANTOFAGASTA")
+```
+
+*Se observa*:
+
+a.  Hay dos opciones: o no hay parques en zonas censales del cuartil más
+    bajo de nivel socioeconómico, Q1 (SEC) o la cuartilización del nivel
+    SEC realizada (por individuo) no es representativa de cómo se
+    calculó el ISMT por zona censal (OCUC, 2017)
+
+b.  Los parques en áreas de mayor nivel socioeconómico tienen una media
+    de verdor mayor, así como una mayor "amplitud" en los verdores
+    (máximos más altos específicamente)
+
+c.  Las medias no varían mucho entre Q2 y Q3
+
+# LÍNEA DE TIEMPO
+
+## 3. Categorización para la línea de tiempo
+
+## 3.1 Categorización del VERDOR (Bajo, medio y alto)
+
+```{r}
+TercilesNDVI <- function(x) {
+  cut(x, breaks=c(quantile(antofa$mean_ndvi, probs = seq(0, 1, 1/3))), 
+      labels=c("Verdor bajo","Verdor medio","Verdor alto"), include.lowest=TRUE)
+}
+
+antofa$Verdor=sapply(antofa$mean_ndvi, TercilesNDVI)
+```
+
+## 3.2 Entropía (H) media por hora (verdor)
+
+```{r}
+# t1<-antofa%>%
+#   group_by(hour, Verdor) |>
+#   summarise(mean_H = mean(H))
+kableExtra::kable(t1) |>
+  kableExtra::kable_styling(latex_options = "striped")
+```
+
+## 3.3 Entropía (H) media por hora (Q-ISMT)
+
+```{r}
+t2<-antofa%>%
+  mutate(Q=cut(ismt, breaks=c(0, 0.166461, 0.527227, 0.630018, 1),
+                      labels=c("Bajo","Medio Bajo","Medio Alto","Alto"))) |>
+  select(hour, H, Q) 
+
+st_geometry(t2) <- NULL
+
+t2<-t2%>%
+  group_by(hour,Q) |>
+  summarise(mean_H = mean(H),
+            sd = sd(H),
+            n = n(),
+            se = sd / sqrt(n)
+  )
+```
+
+## 4. Ploteamos ambas lineas de tiempo
+
+```{r}
+ggplot(t1, aes(x = hour, y = mean_H, color = Verdor))+
+  geom_line(linewidth=1.2)+
+  geom_point() +
+  scale_color_manual(values=c("#AFBDAF" , "#72AE72", "#009900"))+
+  xlab("Hora")+
+  ylab("Entropía (H) media")+
+  theme_minimal()+
+  theme(legend.position = "bottom")+
+    ggtitle("Entropía (H) por hora en parques de ANTOFAGASTA")
+
+#ggplot(data=t2[which(t2$Q %in% c("Medio Bajo","Alto")),], aes(x = hour, y = mean_H, color = Q))+
+ggplot(data=t2, aes(x = hour, y = mean_H, color = Q))+
+  geom_line(linewidth=1.2)+
+  geom_point() +
+  geom_errorbar(aes(ymin=mean_H-se,ymax=mean_H+se), width=.1)+
+    scale_color_brewer()+
+  xlab("Hora")+
+  ylab("Entropía (H) media")+
+    labs(color="Nivel Sociomaterial")+
+  theme_minimal()+
+  theme(legend.position = "bottom")+
+    ggtitle("Entropía (H) por hora en parques de ANTOFAGASTA")
+```
+
+Se observa respecto al VERDOR:
+
+a.  Los parques de VERDOR ALTO son los que presentan más entropía en las
+    horas laborales
+b.  Los parques de VERDOR MEDIO presentan la menor entropía a lo largo
+    del día
+c.  Los parques de VERDOR BAJO presentan ligeramente mayor entropía
+    durante las horas de descanso (22pm-5am)
+
+Se observa respecto al CUARTIL SOCIOECONÓMICO (SEC):
+
+d.  Los parques de BAJO NIVEL SEC (Q2) presentan la menor entropía a lo
+    largo del día
+e.  Los parques de MEDIO NIVEL SEC (Q3) presentan la mayor entropía
+    durante las horas de descanso (22pm-5am)
+f.  Los parques de ALTO NIVEL SEC (Q4) presentan LIGERAMENTE la mayor
+    entropía durante horario laboral (10pm-20pm)
+
+# SANKEY
+Visualización y  análisis de flujo entre _verdor_ y SEC
+
+## 5. Primero extraemos las categorías para cada parque (porque no varían por H)
+
+```{r}
+valores<-antofa%>%
+  mutate(Q=cut(ismt, breaks=c(0, 0.166461, 0.527227, 0.630018, 1),
+                      labels=c("Bajo","Medio Bajo","Medio Alto","Alto"))) |>
+  select(ID, Verdor, Q) |>
+  distinct()
+
+st_geometry(valores) <- NULL
+```
+
+## 6. Ahora la entropía (H) media en 3 rangos horarios: 6-8am, 12-2pm, 8-10pm
+
+## 6.1 Primero extraemos las horas que nos interesan
+
+```{r}
+am<-filter(antofa, hour == 6 | hour == 7 | hour == 8)
+md<-filter(antofa, hour == 12 | hour == 13 | hour == 14)
+pm<-filter(antofa, hour == 20 | hour == 21 | hour == 22)
+```
+
+## 6.2 H promedio para la MAÑANA (6-8 AM)
+
+```{r}
+am_H<-am%>%
+  group_by(ID) |>
+  summarise(mean_H = mean(H))
+```
+
+## 6.3 H promedio para el MEDIO DIA (12-2 PM)
+
+```{r}
+md_H<-md%>%
+  group_by(ID) |>
+  summarise(mean_H = mean(H))
+```
+
+## 6.4 H promedio para la NOCHE (8-10 PM)
+
+```{r}
+pm_H<-pm%>%
+  group_by(ID) |>
+  summarise(mean_H = mean(H))
+```
+
+## 6.5 Unimos cada mean_H a sus valores
+
+```{r}
+am_valores <- merge(am_H, valores, by = "ID", left=TRUE)
+
+md_valores <- merge(md_H, valores, by = "ID", left=TRUE)
+
+pm_valores <- merge(pm_H, valores, by = "ID", left=TRUE)
+```
+
+## 7. Categorizamos la entropía
+
+AM
+
+```{r}
+TercilesH <- function(x) {
+ cut(x, breaks=c(quantile(am_valores$mean_H, probs = seq(0, 1, 1/3))), 
+    labels=c("Baja H","Media H","Alta H"), include.lowest=TRUE)
+}
+
+am_valores$H_cat=sapply(am_valores$mean_H, TercilesH)
+```
+
+MD
+
+```{r}
+TercilesH <- function(x) {
+ cut(x, breaks=c(quantile(md_valores$mean_H, probs = seq(0, 1, 1/3))), 
+    labels=c("Baja H","Media H","Alta H"), include.lowest=TRUE)
+}
+
+md_valores$H_cat=sapply(md_valores$mean_H, TercilesH)
+```
+
+PM
+
+```{r}
+TercilesH <- function(x) {
+ cut(x, breaks=c(quantile(pm_valores$mean_H, probs = seq(0, 1, 1/3))), 
+    labels=c("Baja H","Media H","Alta H"), include.lowest=TRUE)
+}
+
+pm_valores$H_cat=sapply(pm_valores$mean_H, TercilesH)
+```
+
+## 8. Graficamos mediante SANKEY
+
+## 8.1 SANKEY Verdor - Q
+
+parece que con hcharts no se puede :(
+
+```{r}
+# OBSOLETO
+Verdor_Q<-am_valores%>%
+  dplyr::select(Verdor, Q)
+
+st_geometry(Verdor_Q) <- NULL
+
+hchart(data_to_sankey(Verdor_Q), "sankey",
+       hcaes(from=from, to=to, weight=weight),
+       nodes = list(list(id = 'Verdor alto', color = "#009900"),
+                    list(id = 'Verdor medio', color = "#72AE72"),
+                    list(id = 'Verdor bajo', color = '#AFBDAF'),
+                    list(id = 'Alto', color = "lightblue"),
+                    list(id = 'Medio Alto', color = "blue"),
+                    list(id = 'Medio Bajo', color = "darkblue")))
+```
+
+a.  La mayoría de los parques de Verdor alto están en los sectores de
+    mayor nivel SEC (Q4)
+b.  Más de la mitad de los parques de Verdor medio están en los sectores
+    de mayor nivel SEC (Q4)
+c.  Q2 tiene un porcentaje muy bajo de los parques, y Q1 no tiene
+    parques
+d.  Q4 tiene mayoritariamente parques de Alto y Medio Verdor, los
+    parques de Bajo verdor
+
+Probemos con NETWORKD3
+
+```{r}
+library(networkD3)
+```
+
+CONNECTION DATAFRAME
+
+```{r}
+vbb<-sum(valores$Verdor == "Verdor bajo" & valores$Q == "Bajo", na.rm=T)
+vbmb<-sum(valores$Verdor == "Verdor bajo" & valores$Q == "Medio Bajo", na.rm=T )
+vbma<-sum(valores$Verdor == "Verdor bajo" & valores$Q == "Medio Alto", na.rm=T )
+vba<-sum(valores$Verdor == "Verdor bajo" & valores$Q == "Alto" , na.rm=T)
+
+vmb<-sum(valores$Verdor == "Verdor medio" & valores$Q == "Bajo",na.rm=T )
+vmmb<-sum(valores$Verdor == "Verdor medio" & valores$Q == "Medio Bajo" , na.rm=T)
+vmma<-sum(valores$Verdor == "Verdor medio" & valores$Q == "Medio Alto" , na.rm=T)
+vma<-sum(valores$Verdor == "Verdor medio" & valores$Q == "Alto" , na.rm=T)
+
+vab<-sum(valores$Verdor == "Verdor alto" & valores$Q == "Bajo",na.rm=T )
+vamb<-sum(valores$Verdor == "Verdor alto" & valores$Q == "Medio Bajo", na.rm=T )
+vama<-sum(valores$Verdor == "Verdor alto" & valores$Q == "Medio Alto", na.rm=T )
+vaa<-sum(valores$Verdor == "Verdor alto" & valores$Q == "Alto", na.rm=T )
+
+links <- data.frame(
+  source=c("Verdor Bajo","Verdor Bajo", "Verdor Bajo", "Verdor Bajo", 
+           "Verdor Medio", "Verdor Medio", "Verdor Medio", "Verdor Medio",
+           "Verdor Alto", "Verdor Alto", "Verdor Alto", "Verdor Alto"), 
+  target=c("Bajo", "Medio Bajo", "Medio Alto", "Alto",
+           "Bajo", "Medio Bajo", "Medio Alto", "Alto",
+           "Bajo", "Medio Bajo", "Medio Alto", "Alto"), 
+  value=c(vbb,vbmb,vbma,vba,
+          vmb,vmmb,vmma,vma,
+          vab,vamb,vama,vaa)
+  )
+```
+
+CREAMOS NODOS Y LINKS
+
+```{r}
+nodes <- data.frame(
+  name=c(as.character(links$source), 
+  as.character(links$target)) %>% unique()
+)
+
+links$IDsource <- match(links$source, nodes$name)-1 
+links$IDtarget <- match(links$target, nodes$name)-1
+```
+
+### PLOTEAMOS
+
+En un gráfico de tipo Sankey, vemos a la izquierda los parques agrupados por verdor y a la derecha, los parques agrupados según el entorno SEC en que se encuentran.
+Las lineas muestran la coincidencia del verdor del parque y la categorización SEC del emplazamiento del parque.
+
+```{r}
+color_scale <- data.frame(
+  range = c("#AFBDAF","#72AE72","#009900","#787F8F","#5C688A","#364C8A","#072A8C"),
+  domain = c("Verdor Bajo", "Verdor Medio", "Verdor Alto", "Bajo", "Medio Bajo", "Medio Alto", "Alto"),
+  stringsAsFactors = FALSE
+)
+
+p <- sankeyNetwork(Links = links, Nodes = nodes,
+              Source = "IDsource", Target = "IDtarget",
+              Value = "value", NodeID = "name", fontSize = 12, nodeWidth = 75, fontFamily = "Calibri",
+              colourScale = JS(
+                sprintf(
+                'd3.scaleOrdinal()  
+                .domain(%s)
+                .range(%s)',
+                jsonlite::toJSON(color_scale$domain),
+                jsonlite::toJSON(color_scale$range)
+                )
+              ),
+            )
+p
+```
+
+De los 75 (100%) parque con mayor _verdor_, solo 4 y 5 se encuentran en sectores tipo _Medios Bajo_ y _Medios Alto_ respectivamente, (i.e. 5.3% y 6.6%). El grueso de los parques de mayor _verdor_ tienen emplazamientos en barrios de nivel SEC tipo _Alto_ (i.e. 88%).
+
+
+REVISAR COLORES!
+
+## 9. DENDROGRAMAS
+
+```{r}
+library(BBmisc)
+```
+
+HACER MATRIZ
+
+```{r}
+exp <- antofa |>
+  select(c(1,2,12)) |>
+  st_drop_geometry() |>
+  drop_na()
+#exp<-st_set_geometry(exp, NULL)
+
+ids<-exp%>%
+  select(c(1)) |>
+  distinct()
+
+entropias<-exp%>%
+  select(c(3))
+matriz<-matrix(entropias, nrow=185,ncol=24, byrow=TRUE)
+
+```
+
+REVISAR ESTO, NO SE SI FUNCIONA, NO ME DA LA CANTIDAD CORRECTA DE
+FILAS???? PERO ES UNA MATRIZ DEMASIADO GRANDE, ENTONCES NO SE REALMENTE
+SI ESTÁ CORRECTO, Y TAMPOCO SE VISUALIZARLAS
+
+PARA HACER EL DENDROGRAMA, NECESITO UNA MATRIZ CON LOS DATOS ORDENADOS
+DE LA SIGUIENTE FORMA:
+
+-   CADA FILA DEBE SER UN PARQUE (DE SER POSIBLE, EN VEZ DEL N° DE FILA
+    USAR EL ID)
+-   CADA VALOR HACIA LA DERECHA DEBE SER LA ENTROPÍA (H) DE CADA HORA
+
+
+### Preparar datos para Dendrograma
+
+```{r}
+
+dend <- exp |>
+  drop_na("hour") |>
+  tidyr::pivot_wider(names_from = "hour",  values_from = "H") |>
+  as.data.frame()
+
+rownames(dend) <- dend$ID
+
+dend <- dend |> 
+  select(-c("ID")) |>
+  as.matrix() #|> 
+  # matrix(as.numeric(unlist()),nrow=nrow())
+
+d <- matrix(as.numeric(unlist(dend)),nrow=nrow(dend))
+
+dendro <- as.dendrogram(hclust(dist(d)))
+
+library(ggdendro)
+ggdendrogram(data = dendro, rotate = TRUE)
+```
+
+
+### Heatmap
+```{r}
+
+hm = exp|>
+  drop_na("hour")|>
+  st_drop_geometry() 
+
+hm <- dend |>
+#  st_drop_geometry() |>
+  pivot_longer(cols=-geometry ,
+               names_to = "ID",
+               values_to = "H")
+kk <- exp |> 
+  drop_na() |> 
+  st_drop_geometry() |>
+  mutate(H_scaled = scale(H))
+
+ggplot(data = kk, aes(x = "hour", y = "ID", fill=H_scaled)) +
+  geom_tile() 
+# +
+#   scale_y_discrete(limits=rev)
+# geom_tile(aes(fill = H_scaled)) +
+#   scale_fill_gradient2() +
+#   theme(axis.text.y = element_text(size = 6))
+
+```
+
+
