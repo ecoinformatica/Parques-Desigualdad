@@ -1,6 +1,9 @@
 ---
-title: "NOTEBOOK ANTOFAGASTA"
-output: html_notebook
+title: Analisis Antofagasta
+author:
+  - name: Diego Calbucheo
+  - name: Horacio Samaniego
+always_allow_html: true
 editor_options: 
   markdown: 
     wrap: 72
@@ -18,7 +21,7 @@ editor_options:
 
 *Cargamos las librerías*:
 
-```{r}
+```{r message=FALSE, warning=FALSE, include=FALSE}
 library(sf)
 library(dplyr)
 library(ggplot2)
@@ -29,7 +32,7 @@ library(ggpubr)
 #library(tidyclust)
 
 library(ggfortify)
-#library(highcharter)
+library(highcharter)
 
 sf_use_s2(FALSE)
 ```
@@ -48,23 +51,29 @@ antofa<-antofa%>%
 
 1.  Cuartilización del entorno socioeconómico
 
-En base al ISMT de cada zona censal donde está el parque
+    Se establecieron 4 clases de niveles socioeconómicos a partir del
+    calculo de los cuartiles de la distribución de valores del Indice
+    Socio-Material de Hogares. Este cálculo se hizo a partir de la
+    distribución completa de individuos para los que es posible imputar
+    una antena de residencia.
+
+2.  En base al ISMT de cada zona censal donde está el parque
 
 ```{r}
-a1<-antofa%>%
-  mutate(Q=cut(ismt, breaks=c(0, 0.166461, 0.527227, 0.630018, 1),
-                      labels=c("Q1","Q2","Q3","Q4"))) |>
+a1<-antofa |>
+  mutate(Q=cut(ismt, breaks=c(0, 0.166461, 0.527227, 0.630018, 1), labels=c("Q1","Q2","Q3","Q4"))) |>
   select(mean_ndvi, ismt, Q) |>
-  distinct()
+  distinct() |>
+  st_drop_geometry()
 
-st_geometry(a1) <- NULL
+#st_geometry(a1) <- NULL
 ```
 
 ## 1.1 Histogramas
 
 ```{r}
-hist(a1$ismt)
-hist(a1$mean_ndvi)
+# hist(a1$ismt)
+# hist(a1$mean_ndvi)
 
 h_ismt <- ggplot(a1,aes(x = ismt)) +
   geom_histogram(color="darkblue", fill="lightblue", position="dodge") +
@@ -77,28 +86,39 @@ h_ndvi <- ggplot(a1,aes(x = mean_ndvi)) +
   geom_density(alpha = .4,fill = "darkred") +
   xlab("Mean NDVI") +
   theme_classic()
+# 
+# print(h_ndvi)
+# print(h_ismt)
 
-print(h_ndvi)
-print(h_ismt)
 ggarrange(h_ndvi, h_ismt,labels = c("A", "B"), ncol = 2)
+
+ggsave("histogramas_ndvi+ismt.pdf",width=12,height=5, units = "cm")
+ggsave("histogramas_ndvi+ismt.png",width=12,height=5, units = "cm")
+
 ```
 
 ## 2. Modelo estadístico, ANOVA y visualización de los datos
 
 2.1. Modelo estadístico
 
+Aqui buscamos evaluar el efecto del quartil de grupo socioeconomómico en
+que se emplaza cada AVU respecto de su verdor medido por el valor medio
+de NDVI.
+
 ```{r}
-m1<-lm(mean_ndvi ~ Q, a1)
+m1 <- lm(mean_ndvi ~ Q, a1)
 ```
 
-Evaluamos supuestos
+Diagnósticos. Evaluamos los supuestos asociados a la ANOVA.
 
 ```{r}
 autoplot(m1, smooth.colour = NA) #normalidad Y CONSTANCIA de la varianza, ok
 ```
 
-Se cumplen los supuestos para realizar un ANOVA: Normalidad,
-homocedasticidad/constancia de la varianza, ok
+Podemos constatar que se cumplen los supuestos para realizar un ANOVA:
+Los errores son distribuidos *normalmente*, hay
+homocedasticidad/constancia de la varianza. Por lo que concluimos que el
+modelo es estadísticamente válido.
 
 ## ANOVA
 
@@ -108,36 +128,41 @@ anova(m1)
 
 F-value = varianza (Mean SqQ) / error de la varianza (Mean Sq Residuals)
 F-value = 0.064626 / 0.001933 = 33.433 ¿Qué significa que F-value sea
-33.433? Se tiene que comparar con el 'critical value', que se calcula
-con el comando qf
+33.433?
+
+Evaluamo la validez del análisis comparándolo con el valor crítico.
 
 ```{r}
 qf(0.95, 2, 217) # 95% - Df (Q) - Df (Residuals)
 ```
 
 ```         
-Si F-value > critical value, se puede rechazar la h0; en este caso, se cumple
-        (33.433 >> 3.037472)
+Si F-value > al valor crítico, modemos rechazar la hipótesis nula (H0), de no-efecto; en este caso, se cumple tal premisa pues nuestro resultado el mucho menor (i.e. 33.433 >> 3.037472)
 ```
 
-Por otro lado, si p-value \< 0.05, también se puede rechazar la h0
+Por otro lado, ya que el *p-value* \< 0.05, también podemos rechazar la
+H0
 
-Entonces: a. F-value \>\> qf(0.95, 2, 217) --\> se rechaza h0 b. p-value
-\< 0.95 --\> se rechaza h0 c. Al menos uno de las medias es diferente de
-las otras
+Entonces: a. F-value \>\> qf(0.95, 2, 217) --\> se rechaza H0 b. p-value
+\< 0.95 --\> se rechaza H0 c. Esto demuestra que, al menos, una de las
+medias es diferente de las otras!
 
-## 2.3. Summary para evaluar el 'efecto' de cada factor predictor - Q
+## 2.3. `Summary` nos permite evaluar el efecto de cada factor predictor - Q
 
 ```{r}
 summary(m1)
 ```
 
-Mirando la columna Estimate a. Q2 tiene una media de 0.098187 b. La
-media de Q3 varia muy poco respecto a la de Q2, solo 0.006907 (casi
-nada) c. La media que más difiere es la de Q4, 0.098187 + 0.044810 =
-0.142997
+La columna Estimate nos indica que
+
+a.  Q2 tiene una media de 0.098187
+b.  La variación de la media de Q3 es casi nula respecto a la de Q2,
+    solo 0.006907
+c.  La media que más difiere es la de Q4, 0.098187 + 0.044810 = 0.142997
 
 ## 2.4 Tukey
+
+Este test nos permite evaluar cuál de los pares cuartiles difiere mas.
 
 ```{r}
 m2<-aov(mean_ndvi~Q, a1)
@@ -147,8 +172,9 @@ tk<-TukeyHSD(m2)
 plot(tk, las=2)
 ```
 
-Test Tukey nos dice que a. La mayor diferencia es entre Q4 y Q3 (diff =
-0.05171)
+Test Tukey nos dice que
+
+-   La mayor diferencia es entre Q4 y Q3 (diff = 0.05171)
 
 ## 2.5. Ploteamos
 
@@ -157,20 +183,19 @@ ggplot(a1, aes(x=Q, y=mean_ndvi, colour=Q))+
  geom_boxplot()+
   ylab("Mean NDVI")+
   labs(title = NULL)+
-  xlab("Nivel Sociomaterial Territorial")+
+  xlab("ISMT")+
     labs(color="Nivel Sociomaterial")+
-ggtitle("       'Verdor' de los parques y nivel sociomaterial 
-       de su entorno - ANTOFAGASTA")
+ggtitle("       Park 'greenness' and location ISMT - ANTOFAGASTA")
 
 ## Al final, este no es tan informativo!
-ggplot(a1, aes(x=Q, y=mean_ndvi, colour=Q))+
- geom_violin()+
-  ylab("Mean NDVI")+
-  labs(title = NULL)+
-  xlab("Nivel Sociomaterial Territorial)")+
-    labs(color="Nivel Sociomaterial")+
-ggtitle("'Verdor' de los parques y nivel sociomaterial 
-       de su entorno - ANTOFAGASTA")
+# ggplot(a1, aes(x=Q, y=mean_ndvi, colour=Q))+
+#   geom_violin()+
+#   ylab("Mean NDVI")+
+#   labs(title = NULL)+
+#   xlab("Nivel Sociomaterial Territorial)")+
+#     labs(color="Nivel Sociomaterial")+
+# ggtitle("'Verdor' de los parques y nivel sociomaterial 
+#        de su entorno - ANTOFAGASTA")
 ```
 
 *Se observa*:
@@ -186,7 +211,7 @@ b.  Los parques en áreas de mayor nivel socioeconómico tienen una media
 
 c.  Las medias no varían mucho entre Q2 y Q3
 
-# LÍNEA DE TIEMPO
+# Evaluación por hora (línea de tiempo)
 
 ## 3. Categorización para la línea de tiempo
 
@@ -204,10 +229,16 @@ antofa$Verdor=sapply(antofa$mean_ndvi, TercilesNDVI)
 ## 3.2 Entropía (H) media por hora (verdor)
 
 ```{r}
-# t1<-antofa%>%
-#   group_by(hour, Verdor) |>
-#   summarise(mean_H = mean(H))
-kableExtra::kable(t1) |>
+t1<-antofa |>
+  group_by(hour, Verdor) |>
+  summarise(mean_H = mean(H),
+            sd = sd(H),
+            n = n(),
+            se = sd / sqrt(n)
+  )
+
+# show soe random rows
+kableExtra::kable(t1[sample(nrow(t1),7),]) |>
   kableExtra::kable_styling(latex_options = "striped")
 ```
 
@@ -232,29 +263,38 @@ t2<-t2%>%
 
 ## 4. Ploteamos ambas lineas de tiempo
 
-```{r}
-ggplot(t1, aes(x = hour, y = mean_H, color = Verdor))+
-  geom_line(linewidth=1.2)+
-  geom_point() +
-  scale_color_manual(values=c("#AFBDAF" , "#72AE72", "#009900"))+
-  xlab("Hora")+
-  ylab("Entropía (H) media")+
-  theme_minimal()+
-  theme(legend.position = "bottom")+
-    ggtitle("Entropía (H) por hora en parques de ANTOFAGASTA")
+```{r warning=FALSE}
 
-#ggplot(data=t2[which(t2$Q %in% c("Medio Bajo","Alto")),], aes(x = hour, y = mean_H, color = Q))+
-ggplot(data=t2, aes(x = hour, y = mean_H, color = Q))+
+verdor <- ggplot(t1, aes(x = hour, y = mean_H, color = Verdor))+
   geom_line(linewidth=1.2)+
   geom_point() +
   geom_errorbar(aes(ymin=mean_H-se,ymax=mean_H+se), width=.1)+
-    scale_color_brewer()+
-  xlab("Hora")+
-  ylab("Entropía (H) media")+
-    labs(color="Nivel Sociomaterial")+
+  scale_color_manual(values=c("#AFBDAF" , "#72AE72", "#009900"))+
+  xlab("hour")+
+  ylab("Mean Entropy (H)")+
   theme_minimal()+
   theme(legend.position = "bottom")+
-    ggtitle("Entropía (H) por hora en parques de ANTOFAGASTA")
+  ggtitle("NDVI")
+
+#ggplot(data=t2[which(t2$Q %in% c("Medio Bajo","Alto")),], aes(x = hour, y = mean_H, color = Q))+
+ismt <- ggplot(data=t2, aes(x = hour, y = mean_H, color = Q))+
+  geom_line(linewidth=1.2)+
+  geom_point() +
+  geom_errorbar(aes(ymin=mean_H-se,ymax=mean_H+se), width=.1)+
+  scale_color_brewer()+
+  xlab("hour")+
+  ylab("Mean Entropy (H)")+
+  ggtitle("ISMT")+
+  theme_minimal()+
+  theme(legend.position = "bottom")#+
+#    ggtitle("Entropía (H) por hora en parques de ANTOFAGASTA")
+
+
+
+ggarrange(verdor, ismt,labels = c("A", "B"), ncol = 2)
+
+ggsave("ndvi+Q_horas.pdf",width=12,height=5, units = "cm")
+ggsave("ndvi+Q_horas.png",width=12,height=5, units = "cm")
 ```
 
 Se observa respecto al VERDOR:
@@ -276,7 +316,8 @@ f.  Los parques de ALTO NIVEL SEC (Q4) presentan LIGERAMENTE la mayor
     entropía durante horario laboral (10pm-20pm)
 
 # SANKEY
-Visualización y  análisis de flujo entre _verdor_ y SEC
+
+Visualización y análisis de flujo entre *verdor* y SEC
 
 ## 5. Primero extraemos las categorías para cada parque (porque no varían por H)
 
@@ -285,9 +326,8 @@ valores<-antofa%>%
   mutate(Q=cut(ismt, breaks=c(0, 0.166461, 0.527227, 0.630018, 1),
                       labels=c("Bajo","Medio Bajo","Medio Alto","Alto"))) |>
   select(ID, Verdor, Q) |>
-  distinct()
-
-st_geometry(valores) <- NULL
+  distinct() |>
+  st_drop_geometry()
 ```
 
 ## 6. Ahora la entropía (H) media en 3 rangos horarios: 6-8am, 12-2pm, 8-10pm
@@ -452,8 +492,10 @@ links$IDtarget <- match(links$target, nodes$name)-1
 
 ### PLOTEAMOS
 
-En un gráfico de tipo Sankey, vemos a la izquierda los parques agrupados por verdor y a la derecha, los parques agrupados según el entorno SEC en que se encuentran.
-Las lineas muestran la coincidencia del verdor del parque y la categorización SEC del emplazamiento del parque.
+En un gráfico de tipo Sankey, vemos a la izquierda los parques agrupados
+por verdor y a la derecha, los parques agrupados según el entorno SEC en
+que se encuentran. Las lineas muestran la coincidencia del verdor del
+parque y la categorización SEC del emplazamiento del parque.
 
 ```{r}
 color_scale <- data.frame(
@@ -478,8 +520,10 @@ p <- sankeyNetwork(Links = links, Nodes = nodes,
 p
 ```
 
-De los 75 (100%) parque con mayor _verdor_, solo 4 y 5 se encuentran en sectores tipo _Medios Bajo_ y _Medios Alto_ respectivamente, (i.e. 5.3% y 6.6%). El grueso de los parques de mayor _verdor_ tienen emplazamientos en barrios de nivel SEC tipo _Alto_ (i.e. 88%).
-
+De los 75 (100%) parque con mayor *verdor*, solo 4 y 5 se encuentran en
+sectores tipo *Medios Bajo* y *Medios Alto* respectivamente, (i.e. 5.3%
+y 6.6%). El grueso de los parques de mayor *verdor* tienen
+emplazamientos en barrios de nivel SEC tipo *Alto* (i.e. 88%).
 
 REVISAR COLORES!
 
@@ -519,7 +563,6 @@ DE LA SIGUIENTE FORMA:
     USAR EL ID)
 -   CADA VALOR HACIA LA DERECHA DEBE SER LA ENTROPÍA (H) DE CADA HORA
 
-
 ### Preparar datos para Dendrograma
 
 ```{r}
@@ -544,9 +587,9 @@ library(ggdendro)
 ggdendrogram(data = dendro, rotate = TRUE)
 ```
 
-
 ### Heatmap
-```{r}
+
+```{r eval=FALSE, include=FALSE}
 
 hm = exp|>
   drop_na("hour")|>
@@ -571,5 +614,3 @@ ggplot(data = kk, aes(x = "hour", y = "ID", fill=H_scaled)) +
 #   theme(axis.text.y = element_text(size = 6))
 
 ```
-
-
