@@ -585,11 +585,38 @@ dend <- dend |>
   # matrix(as.numeric(unlist()),nrow=nrow())
 
 d <- matrix(as.numeric(unlist(dend)),nrow=nrow(dend))
+d <- scale(d)
 
-dendro <- as.dendrogram(hclust(dist(d)))
+dendro <- as.dendrogram(hclust(dist(d, method = "euclidean"), method = "ward.D2"))
+plot(dendro, cex = 0.5)
 
+# Explicaciones aqui> https://www.datanovia.com/en/blog/cluster-analysis-in-r-simplified-and-enhanced/
+library(factoextra)
 library(ggdendro)
-ggdendrogram(data = dendro, rotate = TRUE)
+
+#using kmeans partition method
+res.km <- eclust(d, "kmeans", nstart = 25)
+
+#optimal num of clusters
+fviz_gap_stat(res.km$gap_stat)
+res.km$nbclust
+
+fviz_cluster(res.km) # scatter plot
+#fviz_silhouette(res.km)
+
+
+# using hierarchical clustering
+res.hc <- eclust(d, "hclust",k=4) # compute hclust
+fviz_gap_stat(res.hc$gap_stat)
+fviz_cluster(res.hc) # scatter plot
+
+fviz_dend(res.hc, rect = TRUE) # dendrogam
+
+ggdendrogram(data = dendro, rotate = TRUE,leaf_labels = TRUE, theme_dendro = FALSE, labels=TRUE,size=2) + 
+  theme(axis.text.y = element_text(size = 6)) +
+  labs(title="Park Entropy Similarity")   + 
+  theme_dendro()
+
 ```
 
 ### Heatmap
