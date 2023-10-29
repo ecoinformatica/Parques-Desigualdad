@@ -184,8 +184,11 @@ ggplot(a1, aes(x=Q, y=mean_ndvi, colour=Q))+
   ylab("Mean NDVI")+
   labs(title = NULL)+
   xlab("ISMT")+
-    labs(color="Nivel Sociomaterial")+
-ggtitle("       Park 'greenness' and location ISMT - ANTOFAGASTA")
+  labs(color="Quartiles")+
+  # ggtitle("Park 'greenness' by ISMT - ANTOFAGASTA")+
+  theme_classic()
+ggsave("NDVI_boxplot.pdf")
+ggsave("NDVI_boxplot.png")
 
 ## Al final, este no es tan informativo!
 # ggplot(a1, aes(x=Q, y=mean_ndvi, colour=Q))+
@@ -274,7 +277,8 @@ verdor <- ggplot(t1, aes(x = hour, y = mean_H, color = Verdor))+
   ylab("Mean Entropy (H)")+
   theme_minimal()+
   theme(legend.position = "bottom")+
-  ggtitle("NDVI")
+  ggtitle("NDVI")+
+  theme_classic()
 
 #ggplot(data=t2[which(t2$Q %in% c("Medio Bajo","Alto")),], aes(x = hour, y = mean_H, color = Q))+
 ismt <- ggplot(data=t2, aes(x = hour, y = mean_H, color = Q))+
@@ -286,7 +290,8 @@ ismt <- ggplot(data=t2, aes(x = hour, y = mean_H, color = Q))+
   ylab("Mean Entropy (H)")+
   ggtitle("ISMT")+
   theme_minimal()+
-  theme(legend.position = "bottom")#+
+  theme(legend.position = "bottom")+
+  theme_classic()
 #    ggtitle("Entropía (H) por hora en parques de ANTOFAGASTA")
 
 
